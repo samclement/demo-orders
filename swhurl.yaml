@@ -1,0 +1,17 @@
+# What this app needs from the swhurl platform. Read by the platform's `make app-new --from-repo`;
+# fields: https://github.com/samclement/swhurl-platform/blob/main/docs/apps.md#swhurlyaml
+version: 1
+stack: typescript
+kind: web
+port: 8080
+healthPath: /healthz
+uid: 65532
+telemetry: otlp
+autoDeploy: true
+database: sqlite
+# What this app offers other apps: its API description (served, and kept in the repository) and its events.
+# The platform reads both files for every image; the events file says what the app publishes.
+provides:
+  api: /openapi.json
+  apiFile: openapi.json
+  eventsFile: asyncapi.yaml

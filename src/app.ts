@@ -1,10 +1,11 @@
 // The app's routes. src/server.ts listens with them; src/openapi.ts writes their description to openapi.json.
+import { randomUUID } from "node:crypto";
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { trace } from "@opentelemetry/api";
 import pino from "pino";
 import { openDatabase } from "./db.js";
 import { publish } from "./events.js";
-import { type Caller, Unauthorized, identify, notify, service } from "./platform.js";
+import { type Caller, Unauthorized, identify, requireApp } from "./platform.js";
 
 export const logger = pino({
   level: process.env.LOG_LEVEL ?? "info",
@@ -15,6 +16,14 @@ const serviceName = process.env.OTEL_SERVICE_NAME ?? "swhurl-app";
 export const db = openDatabase();
 const recordVisit = db.prepare("INSERT INTO events (kind, detail, at) VALUES ('visit', ?, ?)");
 const countVisits = db.prepare("SELECT count(*) AS n FROM events WHERE kind = 'visit'");
+// Orders (migrations/002_orders.sql). The table keeps the latest KEEP orders: a demo that takes an
+// order every half minute must not grow for ever.
+const KEEP = 1000;
+const insertOrder = db.prepare("INSERT INTO orders (id, item, quantity, placed_by, at) VALUES (?, ?, ?, ?, ?)");
+const trimOrders = db.prepare("DELETE FROM orders WHERE id NOT IN (SELECT id FROM orders ORDER BY at DESC LIMIT ?)");
+const latestOrders = db.prepare("SELECT id, item, quantity, placed_by AS placedBy, at FROM orders ORDER BY at DESC LIMIT ?");
+const oneOrder = db.prepare("SELECT id, item, quantity, placed_by AS placedBy, at FROM orders WHERE id = ?");
+const countOrders = db.prepare("SELECT count(*) AS n FROM orders");
 
 export const app = new OpenAPIHono<{ Variables: { caller: Caller } }>();
 const traceId = (): string | null => trace.getActiveSpan()?.spanContext().traceId ?? null;
@@ -59,70 +68,105 @@ app.use(async (c, next) => {
   }, "request handled");
 });
 
-// An example of calling another app: GET /call/orders asks the app "orders" for its "/" and
-// returns what it said. It works once this app declares the call (calls: [orders] in swhurl.yaml).
-app.get("/call/:name", async (c) => {
-  const name = c.req.param("name");
-  try {
-    const reply = await service(name).fetch("/");
-    return c.json({ called: name, status: reply.status, reply: await reply.json().catch(() => null) }, reply.ok ? 200 : 502);
-  } catch (error) {
-    return c.json({ called: name, error: (error as Error).message }, 502);
-  }
-});
-
-// An example of notifying the team: POST /notify sends a message to the notification channel of
-// the team that owns this app, and says whether the platform accepted it.
-app.post("/notify", async (c) => {
-  const caller = c.get("caller");
-  const sent = await notify("Hello from the example route", { message: `Asked for by ${caller.id ?? "an anonymous caller"}.` });
-  return c.json({ sent });
-});
-
-// The example route: says hello, names the caller, counts visits and publishes an event.
-async function hello(caller: Caller) {
+// The front door: what this app is and how much it holds. Each request is recorded (the events
+// table of migrations/001_events.sql), which is also what the image's smoke test looks for.
+function hello(caller: Caller) {
   recordVisit.run("/", new Date().toISOString());
-  const visits = Number((countVisits.get() as { n: number }).n);
-  // An example of publishing: "visited" is described in asyncapi.yaml, which is what lets other
-  // apps find it and subscribe. Off the platform the payload is still checked, and nothing is sent.
-  const published = "visited";
-  let eventId: string | null = null;
-  if (published) {
-    try {
-      eventId = (await publish(published, { path: "/", caller }))?.id ?? null;
-    } catch (error) {
-      logger.error({ err: error, event: published, trace_id: traceId() }, "event not published");
-    }
-  }
   return {
     message: `hello from ${serviceName}`,
     service: serviceName,
     caller,
-    visits,
-    event: eventId ? { type: `${serviceName}.${published}`, id: eventId } : null,
+    visits: Number((countVisits.get() as { n: number }).n),
+    orders: Number((countOrders.get() as { n: number }).n),
     traceId: traceId(),
   };
 }
 
-// A described route: the schemas below are what the handler must return and what openapi.json says.
-// Add routes the same way and run `npm run openapi`; CI fails if openapi.json is out of date.
+// Described routes: the schemas are what each handler takes and returns, and what openapi.json says.
+// After changing one, run `npm run build && npm run openapi`; a test fails while the file is out of date.
+const CallerSchema = z.object({ type: z.enum(["app", "user", "anonymous"]), id: z.string().nullable() }).openapi("Caller");
 const Hello = z.object({
   message: z.string().openapi({ example: "hello from demo-orders" }),
   service: z.string(),
-  caller: z.object({ type: z.enum(["app", "user", "anonymous"]), id: z.string().nullable() }),
-  visits: z.number().int().optional().openapi({ description: "How many times it was asked, when the app keeps a database" }),
-  event: z.object({ type: z.string(), id: z.string() }).nullable().openapi({ description: "The event this request published, if any" }),
+  caller: CallerSchema,
+  visits: z.number().int(),
+  orders: z.number().int().openapi({ description: "How many orders it holds (the latest 1000 are kept)" }),
   traceId: z.string().nullable(),
 }).openapi("Hello");
+const Order = z.object({
+  id: z.string().openapi({ example: "3f0c7d0e-6f0f-4b3e-9d4f-0a8f6d1c2b3a" }),
+  item: z.string().openapi({ example: "tea" }),
+  quantity: z.number().int().openapi({ example: 2 }),
+  placedBy: z.string().openapi({ description: "The app that placed it", example: "demo-shop" }),
+  at: z.string().openapi({ description: "When it was placed (ISO 8601)", example: "2026-01-01T00:00:00.000Z" }),
+}).openapi("Order");
+const NewOrder = z.object({
+  item: z.string().min(1).max(40).openapi({ example: "tea" }),
+  quantity: z.number().int().min(1).max(1000).openapi({ example: 2 }),
+}).openapi("NewOrder");
+const Problem = z.object({ error: z.string() }).openapi("Problem");
+const json = <T extends z.ZodType>(schema: T, description: string) => ({ description, content: { "application/json": { schema } } });
+
+app.openapi(
+  createRoute({ method: "get", path: "/", summary: "Say hello and how many orders there are", responses: { 200: json(Hello, "A greeting") } }),
+  (c) => c.json(hello(c.get("caller")), 200),
+);
+
+app.openapi(
+  createRoute({
+    method: "post",
+    path: "/orders",
+    summary: "Place an order (apps only)",
+    description: "Only another app may place an order: it declares a call to demo-orders and sends the token the platform gives it. "
+      + "A person, signed in or not, is answered 401. Each order is published as the event demo-orders.created.",
+    request: { body: { required: true, content: { "application/json": { schema: NewOrder } } } },
+    responses: { 201: json(Order, "The order, as stored"), 401: json(Problem, "The caller is not an app allowed to call this one") },
+  }),
+  async (c) => {
+    let placedBy: string;
+    try {
+      placedBy = requireApp(c.get("caller"));
+    } catch (error) {
+      if (!(error instanceof Unauthorized)) throw error;
+      return c.json({ error: error.message }, 401);
+    }
+    const { item, quantity } = c.req.valid("json");
+    const order = { id: randomUUID(), item, quantity, placedBy, at: new Date().toISOString() };
+    insertOrder.run(order.id, order.item, order.quantity, order.placedBy, order.at);
+    trimOrders.run(KEEP);
+    // The order is stored whatever happens next: an event that cannot be sent is logged, not a failed order.
+    try {
+      await publish("created", order);
+    } catch (error) {
+      logger.error({ err: error, event: "created", order_id: order.id, trace_id: traceId() }, "event not published");
+    }
+    return c.json(order, 201);
+  },
+);
 
 app.openapi(
   createRoute({
     method: "get",
-    path: "/",
-    summary: "Say hello and name the caller",
-    responses: { 200: { description: "A greeting", content: { "application/json": { schema: Hello } } } },
+    path: "/orders",
+    summary: "The latest orders, newest first",
+    request: { query: z.object({ limit: z.coerce.number().int().min(1).max(100).default(20).openapi({ example: 20 }) }) },
+    responses: { 200: json(z.object({ orders: z.array(Order) }).openapi("Orders"), "Up to `limit` orders") },
   }),
-  async (c) => c.json(await hello(c.get("caller")), 200),
+  (c) => c.json({ orders: latestOrders.all(c.req.valid("query").limit) as z.infer<typeof Order>[] }, 200),
+);
+
+app.openapi(
+  createRoute({
+    method: "get",
+    path: "/orders/{id}",
+    summary: "One order",
+    request: { params: z.object({ id: z.string() }) },
+    responses: { 200: json(Order, "The order"), 404: json(Problem, "No such order (only the latest 1000 are kept)") },
+  }),
+  (c) => {
+    const order = oneOrder.get(c.req.valid("param").id) as z.infer<typeof Order> | undefined;
+    return order ? c.json(order, 200) : c.json({ error: "no such order" }, 404);
+  },
 );
 
 /** What this app offers other apps: generated from the routes above, served and kept in openapi.json. */

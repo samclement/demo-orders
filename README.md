@@ -1,5 +1,12 @@
 # demo-orders
 
+> **A demo app of the swhurl platform.** With [demo-shop](https://github.com/samclement/demo-shop), [demo-shopper](https://github.com/samclement/demo-shopper) and [demo-notifier](https://github.com/samclement/demo-notifier) it shows how apps on the platform work together. This one shows:
+>
+> - **An API only other apps may use.** `POST /orders` asks for an app caller (`requireApp` in `src/app.ts`): demo-shop declared a call to this app, so the platform gives it a token that only demo-orders accepts. A person, signed in or not, gets 401.
+> - **A described API.** `openapi.json` is generated from the routes; the platform's Catalogue lists them.
+> - **A described event.** Every order is published as `demo-orders.created`; `asyncapi.yaml` says what it carries, and that file is all the platform needs to let other apps subscribe.
+> - **A database.** Orders are kept in SQLite on a volume the platform backs up nightly (`migrations/002_orders.sql`); the latest 1000 are kept.
+
 Demo: takes orders, keeps them in SQLite, describes its API and publishes an event for each
 
 A TypeScript app on the [swhurl platform](https://github.com/samclement/swhurl-platform), made from the [swhurl TypeScript template](https://github.com/samclement/swhurl-app-template-typescript). Every push to `main` is checked, published to `ghcr.io/<owner>/demo-orders` and deployed to staging; production changes through **Promote to production**. What the image must provide, the checks and the dependency updates: the [template's guide](https://github.com/samclement/swhurl-app-template-typescript#readme). What the app needs from the platform: [`swhurl.yaml`](swhurl.yaml).

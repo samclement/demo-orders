@@ -52,13 +52,15 @@ After changing a described route, run `npm run build && npm run openapi` and com
 
 Locally there are no platform keys or tokens: requests without a token work as before and a request with one is refused; to call another app, set `SWHURL_SERVICE_<NAME>_URL` to a local stub.
 
+The image build compiles and tests once. Matching merges to `main` publish the image that passed the pull request tests and smoke test; see the [template guide](https://github.com/samclement/swhurl-app-template-typescript#readme) for reuse checks and fallback builds.
+
 ## Local development
 
 ```bash
 npm install
 npm run dev                             # the SDK stays off locally (the image turns it on)
 curl http://localhost:8080/healthz
-npm run check                           # type-check, as CI does
+npm run check                           # type-check without writing JavaScript
 npm run build && npm test               # the tests run against the built app
 ```
 

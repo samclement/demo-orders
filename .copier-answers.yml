@@ -1,5 +1,5 @@
 # Written by Copier from samclement/swhurl-app-template-typescript; `copier update` reads it. Do not edit.
-_commit: v0.2.4
+_commit: v0.2.5
 _src_path: https://github.com/samclement/swhurl-app-template-typescript.git
 api: openapi
 app_name: demo-orders

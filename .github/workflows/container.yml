@@ -11,8 +11,12 @@ on:
 
 permissions:
   contents: read
+  actions: read
   packages: write
 
 jobs:
   app:
-    uses: samclement/swhurl-app-template-typescript/.github/workflows/app.yml@v0.2.0
+    uses: samclement/swhurl-app-template-typescript/.github/workflows/app.yml@v0.2.5
+    with:
+      checks-in-image: true
+      reuse-pr-image: true

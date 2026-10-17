@@ -3,8 +3,8 @@
 //
 // Being called: identify(request.headers) says whether the caller is another app (it sent a
 // service-account token the platform issued for this app alone), a signed-in person, or anonymous.
-// Calling: service("orders").fetch("/path") needs `calls: [orders]` in swhurl.yaml; the platform
-// then sets SWHURL_SERVICE_ORDERS_URL and mounts a token only orders accepts.
+// Calling: service("orders").fetch("/path") needs a call to orders granted on the platform (the app
+// page's Connect to an app, or make app-calls); the platform then sets SWHURL_SERVICE_ORDERS_URL and mounts a token only orders accepts.
 // Notifying: notify("Order backlog") sends a message to the channel of the team that owns this app.
 // Nothing is declared: every app is given the notify service's address and a token for it.
 import { createPublicKey, verify as verifySignature } from "node:crypto";
@@ -84,7 +84,20 @@ export function requireApp(caller: Caller): string {
 }
 
 /**
- * Another app this one declared in swhurl.yaml (`calls: [name]`). fetch() sends the request to
+ * A secret this app reads: list its name in swhurl.yaml's secrets, and set its value on the platform. A name
+ * listed without a value deploys all the same, so the code that needs it fails here, saying how to set it.
+ */
+export function secret(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    const where = `APP=${process.env.SWHURL_APP ?? "<app>"} ENV=${process.env.SWHURL_ENV ?? "<env>"}`;
+    throw new Error(`secret ${name} has no value: set it on the platform (make app-secret ${where} NAME=${name}) and list it in swhurl.yaml's secrets`);
+  }
+  return value;
+}
+
+/**
+ * Another app this one has been granted a call to (Connect to an app, or make app-calls). fetch() sends the request to
  * the same environment's instance with this app's token for it; trace headers are added by the
  * OpenTelemetry instrumentation, so the callee's spans join this request's trace.
  */
@@ -92,7 +105,7 @@ export function service(name: string): { url: string; fetch(path: string, init?:
   const variable = `SWHURL_SERVICE_${name.toUpperCase().replaceAll("-", "_")}_URL`;
   const url = process.env[variable];
   if (!url) {
-    throw new Error(`${variable} is not set: declare the call (calls: [${name}] in swhurl.yaml, or make app-calls on the platform)`);
+    throw new Error(`${variable} is not set: grant the call on the platform (the app page's Connect to an app, or make app-calls ARGS="--add ${name}")`);
   }
   // The platform replaces the token file every few minutes, so read it for each call. Locally
   // there is none: point the variable at a stub that does not check tokens.

@@ -1,5 +1,5 @@
 # Written by Copier from samclement/swhurl-app-template-typescript; `copier update` reads it. Do not edit.
-_commit: v0.2.5
+_commit: v0.2.11
 _src_path: https://github.com/samclement/swhurl-app-template-typescript.git
 api: openapi
 app_name: demo-orders
@@ -7,4 +7,5 @@ database: sqlite
 description: 'Demo: takes orders, keeps them in SQLite, describes its API and publishes
     an event for each'
 events: asyncapi
+flags: none
 kind: web

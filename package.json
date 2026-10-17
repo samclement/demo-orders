@@ -4,10 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc",
-    "dev": "tsx src/main.ts",
+    "flags": "node scripts/flags.mjs",
+    "build": "node scripts/flags.mjs && tsc",
+    "dev": "node scripts/flags.mjs && tsx src/main.ts",
     "start": "node dist/main.js",
-    "check": "tsc --noEmit",
+    "check": "node scripts/flags.mjs && tsc --noEmit",
     "test": "node --test \"test/**/*.test.mjs\"",
     "openapi": "node dist/openapi.js"
   },

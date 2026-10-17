@@ -5,7 +5,8 @@ ARG NPM_CONFIG_LOGLEVEL=warn
 RUN npm ci
 
 FROM deps AS build
-COPY tsconfig.json ./
+COPY tsconfig.json swhurl.yaml ./
+COPY scripts ./scripts
 COPY src ./src
 RUN npm run build
 

@@ -1,8 +1,9 @@
 // Events between apps on the swhurl platform's NATS JetStream.
 // https://github.com/samclement/swhurl-platform/blob/main/docs/apps.md#events
 //
-// Declare them in swhurl.yaml (events: {publish: [created], subscribe: [orders.created]}); the
-// platform then gives this app an address, a key and permission for exactly those events:
+// What it publishes is declared in swhurl.yaml (events: {publish: [created]}) or asyncapi.yaml; what it
+// receives is granted on the platform (Connect to an app, or make app-events). The platform then gives
+// this app an address, a key and permission for exactly those events:
 //
 //   await publish("created", { id: 42 });                    // other apps see <this app>.created
 //   subscribe("orders.created", async (event) => { ... });         // throw to get it again
@@ -62,9 +63,10 @@ export function envelope<T>(event: string, data: T): CloudEvent<T> {
 
 let connecting: Promise<{ nats: typeof import("nats"); connection: NatsConnection; jetstream: JetStreamClient }> | undefined;
 
-function connected(): NonNullable<typeof connecting> {
+/** The app's NATS connection, opened on first use: events and feature flag overrides share it. */
+export function connected(): NonNullable<typeof connecting> {
   connecting ??= (async () => {
-    // Loaded only when events are used, so an app without them pays nothing at start-up.
+    // Loaded on first use (an event, or watching flag overrides).
     const nats = await import("nats");
     const connection = await nats.connect({
       servers: process.env.SWHURL_EVENTS_URL,

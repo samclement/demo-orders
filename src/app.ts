@@ -5,7 +5,12 @@ import { trace } from "@opentelemetry/api";
 import pino from "pino";
 import { openDatabase } from "./db.js";
 import { publish } from "./events.js";
+<<<<<<< before updating
 import { type Caller, Unauthorized, identify, requireApp } from "./platform.js";
+=======
+import { flagsLoaded } from "./flags.js";
+import { type Caller, Unauthorized, identify, notify, service } from "./platform.js";
+>>>>>>> after updating
 
 export const logger = pino({
   level: process.env.LOG_LEVEL ?? "info",
@@ -33,8 +38,10 @@ app.onError((error, c) => {
   return c.json({ error: "internal error" }, 500);
 });
 
-// What the platform probes: no caller check, no log line.
+// What the platform probes: no caller check, no log line. Not ready until the app's feature flag
+// overrides have arrived (at most 5 s; src/flagstore.ts).
 app.get("/healthz", (c) => {
+  if (!flagsLoaded()) return c.json({ ok: false, waiting: "feature flag overrides" }, 503);
   db.prepare("SELECT 1").get(); // ready only when the database answers
   return c.json({ ok: true });
 });
@@ -68,12 +75,51 @@ app.use(async (c, next) => {
   }, "request handled");
 });
 
+<<<<<<< before updating
 // The front door: what this app is and how much it holds. Each request is recorded (the events
 // table of migrations/001_events.sql), which is also what the image's smoke test looks for.
 function hello(caller: Caller) {
   recordVisit.run("/", new Date().toISOString());
+=======
+// An example of calling another app: GET /call/orders asks the app "orders" for its "/" and
+// returns what it said. It works once the platform grants this app the call (make app-calls).
+app.get("/call/:name", async (c) => {
+  const name = c.req.param("name");
+  try {
+    const reply = await service(name).fetch("/");
+    return c.json({ called: name, status: reply.status, reply: await reply.json().catch(() => null) }, reply.ok ? 200 : 502);
+  } catch (error) {
+    return c.json({ called: name, error: (error as Error).message }, 502);
+  }
+});
+
+// An example of notifying the team: POST /notify sends a message to the notification channel of
+// the team that owns this app, and says whether the platform accepted it.
+app.post("/notify", async (c) => {
+  const caller = c.get("caller");
+  const sent = await notify("Hello from the example route", { message: `Asked for by ${caller.id ?? "an anonymous caller"}.` });
+  return c.json({ sent });
+});
+
+// The example route: says hello, names the caller, counts visits and publishes an event.
+async function hello(caller: Caller) {
+  recordVisit.run("/", new Date().toISOString());
+  const visits = Number((countVisits.get() as { n: number }).n);
+  // An example of publishing: "visited" is described in asyncapi.yaml, which is what lets other
+  // apps find it and subscribe. Off the platform the payload is still checked, and nothing is sent.
+  const published = "visited";
+  let eventId: string | null = null;
+  if (published) {
+    try {
+      eventId = (await publish(published, { path: "/", caller }))?.id ?? null;
+    } catch (error) {
+      logger.error({ err: error, event: published, trace_id: traceId() }, "event not published");
+    }
+  }
+  const message = `hello from ${serviceName}`;
+>>>>>>> after updating
   return {
-    message: `hello from ${serviceName}`,
+    message,
     service: serviceName,
     caller,
     visits: Number((countVisits.get() as { n: number }).n),

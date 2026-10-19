@@ -22,14 +22,6 @@ provides:
   api: /openapi.json
   apiFile: openapi.json
   eventsFile: asyncapi.yaml
-# Feature flags: typed, with a value per environment; the build generates src/flags.ts from them.
-# https://github.com/samclement/swhurl-platform/blob/main/docs/apps.md#feature-flags
-flags:
-  shout:
-    type: boolean
-    description: Say hello in capitals
-    default: false
-    staging: true
 
 # Grants are set on the platform, not here: the team, who can reach the app, the apps it calls, the
 # events it receives and its alerts (the console's New app form and app page, or make app-*).

@@ -27,13 +27,11 @@ test("the served description names the app the platform runs it as", async () =>
   }
 });
 
-test("the description is served, and describes the example route", async () => {
+test("the description is served, and describes the front door", async () => {
   const served = await (await app.request("/openapi.json")).json();
   assert.match(served.openapi, /^3\.1\./);
-  // "/", or "/api/hello" in an app with a browser frontend (which is served at "/").
-  const [path] = Object.keys(served.paths).filter((each) => served.paths[each].get?.summary === "Say hello and name the caller");
-  assert.ok(served.paths[path].get.responses["200"]);
-  const reply = await app.request(path);
+  assert.ok(served.paths["/"].get.responses["200"]);
+  const reply = await app.request("/");
   assert.equal(reply.status, 200);
   assert.equal(typeof (await reply.json()).message, "string");
 });

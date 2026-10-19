@@ -32,7 +32,6 @@ components:
         properties:
           id:
             type: string
-<<<<<<< before updating
             description: The order's id
           item:
             type: string
@@ -45,22 +44,6 @@ components:
           at:
             type: string
             format: date-time
-=======
-            description: The path that was asked for
-          caller:
-            type: object
-            required: [type, id]
-            properties:
-              type:
-                type: string
-                enum: [app, user, anonymous]
-              id:
-                type: [string, 'null']
-                description: The calling app's name or the person's email
-              user:
-                type: string
-                description: For an app, the signed-in person it is calling for
->>>>>>> after updating
       examples:
         - payload:
             id: 3f0c7d0e-6f0f-4b3e-9d4f-0a8f6d1c2b3a

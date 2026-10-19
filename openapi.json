@@ -18,7 +18,35 @@
             "type": "string"
           },
           "caller": {
+<<<<<<< before updating
             "$ref": "#/components/schemas/Caller"
+=======
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "app",
+                  "user",
+                  "anonymous"
+                ]
+              },
+              "id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "user": {
+                "type": "string",
+                "description": "For an app: the signed-in person it is calling for"
+              }
+            },
+            "required": [
+              "type",
+              "id"
+            ]
+>>>>>>> after updating
           },
           "visits": {
             "type": "integer"

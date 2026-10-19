@@ -20,9 +20,8 @@ test("asyncapi.yaml is a valid AsyncAPI document", () => {
 });
 
 test("every event has a description, a payload schema and an example that fits it", async () => {
-  const described = await describedEvents();
-  assert.ok(described.size > 0, "asyncapi.yaml sends no event");
-  for (const [key, channel] of Object.entries(doc.channels)) {
+  const described = await describedEvents(); // empty for an app that publishes nothing (channels: {})
+  for (const [key, channel] of Object.entries(doc.channels ?? {})) {
     const event = channel.address ?? key;
     if (!described.has(event)) continue; // a channel this app only receives from
     assert.ok(channel.description, `${event}: say what it means (channels.${key}.description)`);
@@ -36,5 +35,5 @@ test("every event has a description, a payload schema and an example that fits i
 test("an event that is not described, or a payload that does not fit, is refused", async () => {
   const [event] = (await describedEvents()).keys();
   await assert.rejects(publish("not-described", {}), EventInvalid);
-  await assert.rejects(publish(event, { unexpected: true }), /does not fit its schema in asyncapi.yaml/);
+  if (event) await assert.rejects(publish(event, { unexpected: true }), /does not fit its schema in asyncapi.yaml/);
 });

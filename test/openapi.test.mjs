@@ -15,7 +15,19 @@ test("openapi.json matches the routes", () => {
     "run `npm run build && npm run openapi` and commit openapi.json");
 });
 
-test("the description is served, and describes the example route", async () => {
+test("the served description names the app the platform runs it as", async () => {
+  process.env.SWHURL_APP = "orders";
+  process.env.SWHURL_DESCRIPTION = "Orders, kept for a year";
+  try {
+    const { info } = await (await app.request("/openapi.json")).json();
+    assert.deepEqual([info.title, info.description], ["orders", "Orders, kept for a year"]);
+  } finally {
+    delete process.env.SWHURL_APP;
+    delete process.env.SWHURL_DESCRIPTION;
+  }
+});
+
+test("the description is served, and describes the front door", async () => {
   const served = await (await app.request("/openapi.json")).json();
   assert.match(served.openapi, /^3\.1\./);
   assert.ok(served.paths["/"].get.responses["200"]);

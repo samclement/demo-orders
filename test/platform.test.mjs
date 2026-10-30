@@ -170,3 +170,40 @@ test("secret() returns a value, and names the command for a missing one", () => 
   delete process.env.EXAMPLE_TOKEN;
   assert.throws(() => secret("EXAMPLE_TOKEN"), /secret EXAMPLE_TOKEN has no value: set it on the platform \(make app-secret APP=orders ENV=\w+ NAME=EXAMPLE_TOKEN\)/);
 });
+
+test("the mounted files win, so a rotation needs no pod restart", () => {
+  // The platform renders the verification facts twice: as environment (which a running pod never re-reads) and
+  // as files under /var/run/swhurl, which the kubelet refreshes in place. The file wins when its variable is
+  // set, which is what makes a rotated key or a newly allowed caller take effect without a restart.
+  const dir = mkdtempSync(join(tmpdir(), "swhurl-material-"));
+  const written = (name, value) => {
+    const path = join(dir, name);
+    writeFileSync(path, value);
+    return path;
+  };
+  const before = {
+    SWHURL_AUTH_ISSUER_FILE: process.env.SWHURL_AUTH_ISSUER_FILE,
+    SWHURL_AUTH_KEYS_FILE: process.env.SWHURL_AUTH_KEYS_FILE,
+    SWHURL_ALLOWED_CALLERS_FILE: process.env.SWHURL_ALLOWED_CALLERS_FILE,
+    SWHURL_ALLOWED_CALLERS: process.env.SWHURL_ALLOWED_CALLERS,
+  };
+  Object.assign(process.env, {
+    SWHURL_AUTH_ISSUER_FILE: written("issuer", `${ISSUER}\n`),
+    SWHURL_AUTH_KEYS_FILE: written("keys", process.env.SWHURL_AUTH_KEYS),
+    SWHURL_ALLOWED_CALLERS_FILE: written("callers", "reports\n"),
+    SWHURL_ALLOWED_CALLERS: "billing",
+  });
+  try {
+    // The environment allows only billing; the file allows reports. The file wins, and a newline in it is
+    // trimmed like the environment's list.
+    assert.deepEqual(identify(bearer(token())), { type: "app", id: "reports" });
+    // The same process, the same pod: rewriting the mounted file changes who may call, with no restart.
+    writeFileSync(process.env.SWHURL_ALLOWED_CALLERS_FILE, "billing\n");
+    assert.throws(() => identify(bearer(token())), Unauthorized);
+  } finally {
+    for (const [name, value] of Object.entries(before)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+});

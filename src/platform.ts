@@ -21,6 +21,32 @@ export type Caller =
 /** The request carried a token this app does not accept: answer 401 with the message. */
 export class Unauthorized extends Error {}
 
+// The platform's verification facts reach this pod twice: as environment variables, which a running pod never
+// re-reads, and as files under /var/run/swhurl, which the kubelet refreshes in place. The file wins when the
+// platform sets its variable, so a rotated key or a newly allowed caller takes effect without a restart; the
+// environment stays the fallback for an image running outside the platform or against an older renderer. The
+// reads are three small files on the token path only, and the OS page cache makes them cheap.
+type Material = { issuer: string; keys: string; allowed: string };
+
+function fromFile(variable: string): string | undefined {
+  const path = process.env[variable];
+  if (!path) return undefined;
+  try {
+    return readFileSync(path, "utf8").trim();
+  } catch {
+    return undefined;
+  }
+}
+
+function material(): Material {
+  const env = process.env;
+  return {
+    issuer: fromFile("SWHURL_AUTH_ISSUER_FILE") ?? env.SWHURL_AUTH_ISSUER ?? "",
+    keys: fromFile("SWHURL_AUTH_KEYS_FILE") ?? env.SWHURL_AUTH_KEYS ?? "",
+    allowed: fromFile("SWHURL_ALLOWED_CALLERS_FILE") ?? env.SWHURL_ALLOWED_CALLERS ?? "",
+  };
+}
+
 /** The header a call carries the person in; read only beside a valid app token. */
 export const USER_HEADER = "x-swhurl-user";
 
@@ -31,7 +57,8 @@ function decode(part: string): Record<string, unknown> {
 }
 
 function appCaller(token: string, user: unknown): Caller {
-  const { SWHURL_APP: app, SWHURL_ENV: env, SWHURL_AUTH_ISSUER: issuer, SWHURL_AUTH_KEYS: keys } = process.env;
+  const { SWHURL_APP: app, SWHURL_ENV: env } = process.env;
+  const { issuer, keys, allowed: callers } = material();
   if (!app || !env || !issuer || !keys) {
     // Outside the platform (local development) there are no keys to check a token against.
     throw new Unauthorized("this app is not configured to verify tokens (SWHURL_AUTH_KEYS is not set)");
@@ -63,7 +90,7 @@ function appCaller(token: string, user: unknown): Caller {
   const match = /^system:serviceaccount:([a-z0-9-]+):([a-z0-9-]+)$/.exec(String(claims.sub));
   const caller = match?.[2];
   if (!caller || match[1] !== `${caller}-${env}`) throw new Unauthorized("token is not from an app in this environment");
-  const allowed = (process.env.SWHURL_ALLOWED_CALLERS ?? "").split(",").filter(Boolean);
+  const allowed = callers.split(",").filter(Boolean);
   if (!allowed.includes(caller)) throw new Unauthorized(`${caller} is not allowed to call ${app}`);
   // An allowed caller is trusted to name the person truthfully, as it is trusted with its own token.
   if (user === undefined || user === "") return { type: "app", id: caller };
